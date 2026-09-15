@@ -9,7 +9,8 @@ export type ImportField =
   | "sku"
   | "category"
   | "rrpPrice"
-  | "currentStock";
+  | "currentStock"
+  | "promo";
 
 export const FIELD_LABELS: Record<ImportField, string> = {
   brand: "Brand",
@@ -19,6 +20,7 @@ export const FIELD_LABELS: Record<ImportField, string> = {
   category: "Category",
   rrpPrice: "RRP Price",
   currentStock: "Current Stock",
+  promo: "Promotion Price",
 };
 
 const FIELD_SYNONYMS: Record<ImportField, string[]> = {
@@ -39,7 +41,17 @@ export function normalizeHeader(h: string) {
     .replace(/\s+/g, " ")
     .trim();
 }
-
+/** Detects columns named "Promotion <name>" / "Promo <name>" — one column
+ * per promotion; each row's cell holds that product's price under that
+ * promotion. Returns the promotion name, or null if not a promo column. */
+export function detectPromotionHeader(rawHeader: string): string | null {
+  const raw = String(rawHeader || "").trim();
+  const m = raw.match(/^promo(?:tion)?s?\s*[:\-]?\s+(.+)$/i);
+  if (!m) return null;
+  let name = m[1].trim();
+  name = name.replace(/\s*price\s*$/i, "").trim();
+  return name || null;
+}โ
 function levenshtein(a: string, b: string) {
   const m = a.length;
   const n = b.length;
@@ -95,16 +107,24 @@ export function guessFieldForHeader(rawHeader: string): Guess | null {
   return best;
 }
 
-export function autoMapHeaders(headers: string[]): Record<number, ImportField | null> {
+export function autoMapHeaders(headers: string[]): {
+  mapping: Record<number, ImportField | null>;
+  promoNames: Record<number, string>;
+} {
   const mapping: Record<number, ImportField | null> = {};
+  const promoNames: Record<number, string> = {};
   const claimedByField = new Map<ImportField, { idx: number; confidence: number; normLen: number }>();
 
   headers.forEach((h, idx) => {
-    const guess = guessFieldForHeader(h);
-    if (!guess) {
-      mapping[idx] = null;
+    const promoName = detectPromotionHeader(h);
+    if (promoName) {
+      mapping[idx] = "promo";
+      promoNames[idx] = promoName;
       return;
     }
+    mapping[idx] = null;
+    const guess = guessFieldForHeader(h);
+    if (!guess) return;
     const existing = claimedByField.get(guess.field);
     if (
       !existing ||
@@ -115,14 +135,11 @@ export function autoMapHeaders(headers: string[]): Record<number, ImportField | 
     }
   });
 
-  headers.forEach((_, idx) => {
-    mapping[idx] = null;
-  });
   claimedByField.forEach((v, field) => {
     mapping[v.idx] = field;
   });
 
-  return mapping;
+  return { mapping, promoNames };
 }
 
 export function parseNumberLoose(v: unknown): number {
