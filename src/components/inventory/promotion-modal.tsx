@@ -15,7 +15,6 @@ export function PromotionModal({
   onAdd,
   onDelete,
   onToggleEnabled,
-  onSetActive,
 }: {
   open: boolean;
   onClose: () => void;
@@ -24,7 +23,6 @@ export function PromotionModal({
   onAdd: (name: string, price: number) => void;
   onDelete: (id: string) => void;
   onToggleEnabled: (id: string, enabled: boolean) => void;
-  onSetActive: (promotionId: string | null) => void;
 }) {
   const [name, setName] = useState("");
   const [price, setPrice] = useState(0);
@@ -33,6 +31,9 @@ export function PromotionModal({
 
   return (
     <Modal open={open} onClose={onClose} title={`Promotions — ${product.name}`} width="max-w-xl">
+      <p className="text-xs text-gray-500 mb-3">
+        All enabled promotions are available to pick from at checkout in POS — no need to mark one as &quot;active&quot;.
+      </p>
       <div className="flex items-end gap-2 mb-4">
         <Field label="Promotion name">
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Grand Opening" />
@@ -61,19 +62,11 @@ export function PromotionModal({
             <div>
               <span className="font-medium text-gray-800">{p.name}</span>{" "}
               <span className="text-gray-500">{formatCurrency(p.promo_price)}</span>{" "}
-              {product.active_promotion_id === p.id && <Badge tone="green">Active in POS</Badge>}
               {!p.enabled && <Badge tone="gray">Disabled</Badge>}
             </div>
             <div className="flex items-center gap-2 text-xs">
               <button className="text-gray-500 hover:underline" onClick={() => onToggleEnabled(p.id, !p.enabled)}>
                 {p.enabled ? "Disable" : "Enable"}
-              </button>
-              <button
-                className="text-gray-500 hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
-                disabled={!p.enabled}
-                onClick={() => onSetActive(product.active_promotion_id === p.id ? null : p.id)}
-              >
-                {product.active_promotion_id === p.id ? "Deactivate" : "Set Active"}
               </button>
               <button className="text-red-600 hover:underline" onClick={() => onDelete(p.id)}>
                 Delete
