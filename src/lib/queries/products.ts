@@ -16,9 +16,6 @@ export function useProducts() {
 }
 
 export function useProductExtras() {
-  // stock history, promotions, and event allocations for ALL products in one
-  // shot — simplest correct approach at demo/mid scale; swap for per-product
-  // lazy loads if the catalog grows past a few thousand SKUs.
   return useQuery({
     queryKey: ["product-extras"],
     queryFn: async () => {
@@ -86,16 +83,41 @@ export function useDeleteProducts() {
 export function useBulkInsertProducts() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (rows: Partial<Product>[]) => {
+    mutationFn: async (rows: (Partial<Product> & { _promotions?: { name: string; price: number }[] })[]) => {
       const supabase = createClient();
       const chunkSize = 500;
+      const promotionsToInsert: { product_id: string; name: string; promo_price: number; enabled: boolean }[] = [];
+
       for (let i = 0; i < rows.length; i += chunkSize) {
         const chunk = rows.slice(i, i + chunkSize);
-        const { error } = await supabase.from("products").insert(chunk);
+        const chunkWithoutPromos = chunk.map(({ _promotions, ...rest }) => rest);
+        const { data, error } = await supabase.from("products").insert(chunkWithoutPromos).select();
         if (error) throw error;
+
+        (data as Product[]).forEach((inserted, idx) => {
+          const promos = chunk[idx]._promotions;
+          if (promos && promos.length) {
+            promos.forEach((p) => {
+              promotionsToInsert.push({
+                product_id: inserted.id,
+                name: p.name,
+                promo_price: p.price,
+                enabled: true,
+              });
+            });
+          }
+        });
+      }
+
+      if (promotionsToInsert.length) {
+        const { error: promoErr } = await supabase.from("promotions").insert(promotionsToInsert);
+        if (promoErr) throw promoErr;
       }
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["products"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["products"] });
+      qc.invalidateQueries({ queryKey: ["product-extras"] });
+    },
   });
 }
 
