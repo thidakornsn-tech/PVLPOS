@@ -31,7 +31,6 @@ import {
   useProducts,
   useSaveAllocation,
   useSavePromotion,
-  useSetActivePromotion,
   useUpdateProduct,
 } from "@/lib/queries/products";
 import type { Product } from "@/lib/types";
@@ -59,7 +58,6 @@ export default function InventoryPage() {
   const adjustStock = useAdjustStock();
   const savePromotion = useSavePromotion();
   const deletePromotion = useDeletePromotion();
-  const setActivePromotion = useSetActivePromotion();
   const saveAllocation = useSaveAllocation();
 
   const promotions = extras?.promotions ?? [];
@@ -76,17 +74,26 @@ export default function InventoryPage() {
   const [stockProductId, setStockProductId] = useState<string | null>(null);
   const [promoProductId, setPromoProductId] = useState<string | null>(null);
   const [eventProductId, setEventProductId] = useState<string | null>(null);
-  const [importOpen, setImportOpen] = useState(false);
-  const [exportMenuOpen, setExportMenuOpen] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<"selected" | "all" | Product | null>(null);
-  const [menuForId, setMenuForId] = useState<string | null>(null);
+  const stockProduct = useMemo(() => products.find((p) => p.id === stockProductId) || null, [products, stockProductId]);
+  const eventProduct = useMemo(() => products.find((p) => p.id === eventProductId) || null, [products, eventProductId]);
+  const promoProduct = useMemo(() => products.find((p) => p.id === promoProductId) || null, [products, promoProductId]);
+  const [showImport, setShowImport] = useState(false);
+  const [showExport, setShowExport] = useState(false);
+  const [confirm, setConfirm] = useState(null);
+  const [toasts, setToasts] = useState([]);
+
+  function pushToast(message) {
+    const id = Math.random().toString(36).slice(2);
+    setToasts((t) => [...t, { id, message }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 2600);
+  }
 
   const filtered = useMemo(() => {
     return products.filter((p) => {
       if (filter === "in-stock" && p.current_stock <= 0) return false;
       if (filter === "out-of-stock" && p.current_stock > 0) return false;
       if (filter === "low-stock" && !(p.current_stock > 0 && p.current_stock <= LOW_STOCK_THRESHOLD)) return false;
-      if (filter === "with-promo" && !activePromotion(p, promotions)) return false;
+      if (filter === "with-promo" && !promotions.some((pr) => pr.product_id === p.id && pr.enabled)) return false;
       if (filter === "allocated" && allocatedEventStock(p.id, allocations) <= 0) return false;
       if (search) {
         const q = search.toLowerCase();
@@ -112,13 +119,17 @@ export default function InventoryPage() {
         id: "promo_price",
         header: "Promotion Price",
         cell: (c) => {
-          const promo = activePromotion(c.row.original, promotions);
-          return promo ? (
-            <span className="text-green-700 font-medium">
-              {formatCurrency(promo.promo_price)} <span className="text-gray-400 font-normal">({promo.name})</span>
-            </span>
-          ) : (
-            "-"
+          const product = c.row.original;
+          const enabledPromos = promotions.filter((p) => p.product_id === product.id && p.enabled);
+          return (
+            <div className="flex flex-col gap-0.5 text-xs">
+              <span className="text-gray-500">RRP — {formatCurrency(product.rrp_price)}</span>
+              {enabledPromos.map((p) => (
+                <span key={p.id} className="text-green-700 font-medium">
+                  {p.name} — {formatCurrency(p.promo_price)}
+                </span>
+              ))}
+            </div>
           );
         },
       }),
@@ -242,9 +253,9 @@ export default function InventoryPage() {
 
   const selectedIds = Object.keys(rowSelection).filter((id) => rowSelection[id]);
 
-  const stockProduct = products.find((p) => p.id === stockProductId) ?? null;
-  const promoProduct = products.find((p) => p.id === promoProductId) ?? null;
-  const eventProduct = products.find((p) => p.id === eventProductId) ?? null;
+  const [menuForId, setMenuForId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<"selected" | "all" | Product | null>(null);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
 
   function userName() {
     return user?.name ?? "Unknown";
@@ -255,7 +266,7 @@ export default function InventoryPage() {
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-lg font-semibold text-gray-900">Inventory</h1>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
+          <Button variant="outline" size="sm" onClick={() => setShowImport(true)}>
             <Upload className="w-3.5 h-3.5" /> Import
           </Button>
           <div className="relative">
@@ -429,7 +440,7 @@ export default function InventoryPage() {
 
       <ProductFormModal
         open={formOpen}
-        onClose={() => setFormOpen(false)}
+        onClose={() => { setFormOpen(false); setEditingProduct(null); }}
         product={editingProduct}
         onSave={(patch) => {
           if (editingProduct) {
@@ -470,10 +481,6 @@ export default function InventoryPage() {
         }}
         onDelete={(id) => deletePromotion.mutate(id)}
         onToggleEnabled={(id, enabled) => savePromotion.mutate({ id, product_id: promoProductId!, enabled })}
-        onSetActive={(promotionId) => {
-          if (!promoProductId) return;
-          setActivePromotion.mutate({ productId: promoProductId, promotionId });
-        }}
       />
 
       <EventAllocationModal
@@ -492,8 +499,8 @@ export default function InventoryPage() {
       />
 
       <ImportModal
-        open={importOpen}
-        onClose={() => setImportOpen(false)}
+        open={showImport}
+        onClose={() => setShowImport(false)}
         onImport={async (rows) => {
           await bulkInsert.mutateAsync(rows);
           toast.push(`Imported ${rows.length} products`);
@@ -507,11 +514,9 @@ export default function InventoryPage() {
           deleteTarget === "all" ? "Delete Entire Inventory" : deleteTarget === "selected" ? "Delete Selected Products" : "Delete Product"
         }
         message={
-          deleteTarget === "all"
-            ? `This permanently deletes all ${products.length} products. This cannot be undone.`
-            : deleteTarget === "selected"
-            ? `Delete ${selectedIds.length} selected product(s)? This cannot be undone.`
-            : `Delete "${deleteTarget && typeof deleteTarget === "object" ? deleteTarget.name : ""}"? This cannot be undone.`
+          deleteTarget === "all" ? `This permanently deletes all ${products.length} products. This cannot be undone.`
+          : deleteTarget === "selected" ? `Delete ${selectedIds.length} selected product(s)? This cannot be undone.`
+          : `Delete "${deleteTarget && typeof deleteTarget === "object" ? deleteTarget.name : ""}"? This cannot be undone.`
         }
         onConfirm={() => {
           if (deleteTarget === "all") {
