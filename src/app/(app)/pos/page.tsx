@@ -15,6 +15,8 @@ import { OrderDetailModal } from "@/components/pos/order-detail-modal";
 import { EditOrderModal } from "@/components/pos/edit-order-modal";
 import { DeleteOrderDialog } from "@/components/pos/delete-order-dialog";
 import { Badge } from "@/components/ui/badge";
+import { Download } from "lucide-react";
+import { exportOrdersCsv, exportOrdersXlsx, exportOrdersPdf } from "@/lib/export";
 
 type SubTab = "sale" | "history";
 
@@ -114,6 +116,7 @@ export default function PosPage() {
 
   // -------- Order History state --------
   const [historySearch, setHistorySearch] = useState("");
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
   const [detailOrder, setDetailOrder] = useState<OrderWithItems | null>(null);
   const [editOrder, setEditOrder] = useState<OrderWithItems | null>(null);
@@ -192,7 +195,36 @@ export default function PosPage() {
       {subTab === "history" && (
         <div>
           <div className="flex items-center gap-2 mb-3">
-            <div className="relative flex-1 max-w-sm">
+                   <div className="relative">
+          <button
+            onClick={() => setExportMenuOpen((v) => !v)}
+            className="text-xs px-3 py-1.5 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 inline-flex items-center gap-1.5"
+          >
+            <Download className="w-3.5 h-3.5" /> Export
+          </button>
+          {exportMenuOpen && (
+            <div className="absolute left-0 mt-1 w-44 bg-white border border-gray-200 rounded-md shadow-lg z-20 py-1 text-sm">
+              <button
+                className="w-full text-left px-3 py-1.5 hover:bg-gray-50"
+                onClick={() => { exportOrdersCsv(filteredOrders); setExportMenuOpen(false); }}
+              >
+                CSV
+              </button>
+              <button
+                className="w-full text-left px-3 py-1.5 hover:bg-gray-50"
+                onClick={() => { exportOrdersXlsx(filteredOrders); setExportMenuOpen(false); }}
+              >
+                Excel
+              </button>
+              <button
+                className="w-full text-left px-3 py-1.5 hover:bg-gray-50"
+                onClick={() => { exportOrdersPdf(filteredOrders); setExportMenuOpen(false); }}
+              >
+                PDF
+              </button>
+            </div>
+          )}
+        </div> <div className="relative flex-1 max-w-sm">
               <Search className="w-4 h-4 text-gray-400 absolute left-2.5 top-2.5" />
               <input
                 value={historySearch}
