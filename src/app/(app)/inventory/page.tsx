@@ -80,6 +80,9 @@ export default function InventoryPage() {
   const [showImport, setShowImport] = useState(false);
   const [showExport, setShowExport] = useState(false);
   const [confirm, setConfirm] = useState(null);
+  const [menuForId, setMenuForId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<"selected" | "all" | Product | null>(null);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
 
   const filtered = useMemo(() => {
     return products.filter((p) => {
@@ -245,10 +248,6 @@ export default function InventoryPage() {
   });
 
   const selectedIds = Object.keys(rowSelection).filter((id) => rowSelection[id]);
-
-  const [menuForId, setMenuForId] = useState<string | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<"selected" | "all" | Product | null>(null);
-  const [exportMenuOpen, setExportMenuOpen] = useState(false);
 
   function userName() {
     return user?.name ?? "Unknown";
@@ -530,3 +529,4 @@ export default function InventoryPage() {
     </div>
   );
 }
+
