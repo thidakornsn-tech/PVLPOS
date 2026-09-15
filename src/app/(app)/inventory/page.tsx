@@ -80,13 +80,6 @@ export default function InventoryPage() {
   const [showImport, setShowImport] = useState(false);
   const [showExport, setShowExport] = useState(false);
   const [confirm, setConfirm] = useState(null);
-  const [toasts, setToasts] = useState([]);
-
-  function pushToast(message) {
-    const id = Math.random().toString(36).slice(2);
-    setToasts((t) => [...t, { id, message }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 2600);
-  }
 
   const filtered = useMemo(() => {
     return products.filter((p) => {
