@@ -43,9 +43,6 @@ export function normalizeHeader(h: string) {
     .trim();
 }
 
-/** Detects columns named "Promotion <name>" / "Promo <name>" — one column
- * per promotion; each row's cell holds that product's price under that
- * promotion. Returns the promotion name, or null if not a promo column. */
 export function detectPromotionHeader(rawHeader: string): string | null {
   const raw = String(rawHeader || "").trim();
   const m = raw.match(/^promo(?:tion)?s?\s*[:\-]?\s+(.+)$/i);
@@ -128,4 +125,84 @@ export function autoMapHeaders(headers: string[]): {
     mapping[idx] = null;
     const guess = guessFieldForHeader(h);
     if (!guess) return;
-    const
+    const existing = claimedByField.get(guess.field);
+    if (
+      !existing ||
+      guess.confidence > existing.confidence ||
+      (guess.confidence === existing.confidence && guess.normLen > existing.normLen)
+    ) {
+      claimedByField.set(guess.field, { idx, confidence: guess.confidence, normLen: guess.normLen });
+    }
+  });
+
+  claimedByField.forEach((v, field) => {
+    mapping[v.idx] = field;
+  });
+
+  return { mapping, promoNames };
+}
+
+export function parseNumberLoose(v: unknown): number {
+  if (v === null || v === undefined || v === "") return 0;
+  if (typeof v === "number") return v;
+  const cleaned = String(v).replace(/[^0-9.\-]/g, "");
+  const n = parseFloat(cleaned);
+  return Number.isFinite(n) ? n : 0;
+}
+
+export function findHeaderRowIndex(rows: unknown[][], maxScan = 20): number {
+  let bestIdx = 0;
+  let bestScore = -1;
+  for (let i = 0; i < Math.min(maxScan, rows.length); i++) {
+    const row = rows[i] || [];
+    const strCells = row.filter((c) => typeof c === "string" && c.trim() !== "");
+    if (strCells.length < 2) continue;
+    let matches = 0;
+    let hasName = false;
+    row.forEach((cell) => {
+      if (typeof cell !== "string") return;
+      const guess = guessFieldForHeader(cell);
+      if (guess && guess.confidence >= 0.7) {
+        matches++;
+        if (guess.field === "name") hasName = true;
+      }
+    });
+    const score = matches + (hasName ? 0.5 : 0);
+    if ((matches >= 2 || (matches >= 1 && hasName)) && score > bestScore) {
+      bestScore = score;
+      bestIdx = i;
+    }
+  }
+  return bestScore >= 0 ? bestIdx : 0;
+}
+
+export interface RowsToObjectsResult {
+  headers: string[];
+  rows: Record<string, unknown>[];
+  headerRowIdx: number;
+}
+
+export function rowsToObjects(rawRows: unknown[][]): RowsToObjectsResult {
+  const headerRowIdx = findHeaderRowIndex(rawRows);
+  const rawHeaders = (rawRows[headerRowIdx] || []).map((h) => (h == null ? "" : String(h)));
+  const seen = new Map<string, number>();
+  const headers = rawHeaders.map((h, i) => {
+    const label = h.trim() || `Column ${i + 1}`;
+    const count = seen.get(label) || 0;
+    seen.set(label, count + 1);
+    return count === 0 ? label : `${label} (${count + 1})`;
+  });
+
+  const dataRows = rawRows.slice(headerRowIdx + 1);
+  const rows = dataRows
+    .filter((r) => r.some((c) => c !== null && c !== undefined && String(c).trim() !== ""))
+    .map((r) => {
+      const obj: Record<string, unknown> = {};
+      headers.forEach((h, i) => {
+        obj[h] = r[i];
+      });
+      return obj;
+    });
+
+  return { headers, rows, headerRowIdx };
+}
