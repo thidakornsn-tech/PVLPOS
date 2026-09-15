@@ -2,7 +2,7 @@ import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import type { Product } from "@/lib/types";
+import type { OrderWithItems, Product } from "@/lib/types";
 
 function toRows(products: Product[]) {
   return products.map((p) => ({
@@ -57,53 +57,77 @@ export function exportPdf(products: Product[], filename = "inventory.pdf") {
   });
   doc.save(filename);
 }
-import type { OrderWithItems } from "@/lib/types";
 
-function toOrderRows(orders: OrderWithItems[]) {
-  return orders.map((o) => ({
-    "Order #": o.order_number,
-    Date: new Date(o.created_at).toLocaleString(),
-    Event: o.event_name ?? "",
-    "Sales Person": o.sales_person_name ?? "",
-    "Payment Method": o.payment_method_name ?? "",
-    Customer: o.customer_name ?? "",
-    Discount: o.discount,
-    Total: o.total,
-    Status: o.status,
-  }));
+function toOrderItemRows(orders: OrderWithItems[]) {
+  const rows: Record<string, string | number>[] = [];
+  orders.forEach((o) => {
+    const items = o.order_items ?? [];
+    if (items.length === 0) {
+      rows.push({
+        "Order #": o.order_number,
+        Date: new Date(o.created_at).toLocaleString(),
+        Event: o.event_name ?? "",
+        "Sales Person": o.sales_person_name ?? "",
+        "Payment Method": o.payment_method_name ?? "",
+        Customer: o.customer_name ?? "",
+        "Product Name": "",
+        Brand: "",
+        Qty: "",
+        "Unit Price": "",
+        "Line Total": "",
+        "Order Discount": o.discount,
+        "Order Total": o.total,
+        Status: o.status,
+      });
+      return;
+    }
+    items.forEach((item) => {
+      rows.push({
+        "Order #": o.order_number,
+        Date: new Date(o.created_at).toLocaleString(),
+        Event: o.event_name ?? "",
+        "Sales Person": o.sales_person_name ?? "",
+        "Payment Method": o.payment_method_name ?? "",
+        Customer: o.customer_name ?? "",
+        "Product Name": item.product_name,
+        Brand: item.brand ?? "",
+        Qty: item.qty,
+        "Unit Price": item.is_giveaway ? 0 : item.unit_price,
+        "Line Total": item.is_giveaway ? 0 : item.line_total,
+        "Order Discount": o.discount,
+        "Order Total": o.total,
+        Status: o.status,
+      });
+    });
+  });
+  return rows;
 }
 
 export function exportOrdersCsv(orders: OrderWithItems[], filename = "sales-report.csv") {
-  const csv = Papa.unparse(toOrderRows(orders));
+  const csv = Papa.unparse(toOrderItemRows(orders));
   download(new Blob([csv], { type: "text/csv;charset=utf-8;" }), filename);
 }
 
 export function exportOrdersXlsx(orders: OrderWithItems[], filename = "sales-report.xlsx") {
-  const ws = XLSX.utils.json_to_sheet(toOrderRows(orders));
+  const ws = XLSX.utils.json_to_sheet(toOrderItemRows(orders));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Sales Report");
   XLSX.writeFile(wb, filename);
 }
 
 export function exportOrdersPdf(orders: OrderWithItems[], filename = "sales-report.pdf") {
+  const rows = toOrderItemRows(orders);
   const doc = new jsPDF({ orientation: "landscape" });
   doc.setFontSize(12);
   doc.text("Powerlife Sales Report", 14, 14);
   autoTable(doc, {
     startY: 20,
-    head: [["Order #", "Date", "Event", "Sales Person", "Payment", "Customer", "Discount", "Total", "Status"]],
-    body: orders.map((o) => [
-      o.order_number,
-      new Date(o.created_at).toLocaleString(),
-      o.event_name ?? "",
-      o.sales_person_name ?? "",
-      o.payment_method_name ?? "",
-      o.customer_name ?? "",
-      o.discount.toFixed(2),
-      o.total.toFixed(2),
-      o.status,
+    head: [["Order #", "Date", "Event", "Sales Person", "Payment", "Customer", "Product", "Brand", "Qty", "Unit Price", "Line Total", "Order Total", "Status"]],
+    body: rows.map((r) => [
+      r["Order #"], r.Date, r.Event, r["Sales Person"], r["Payment Method"], r.Customer,
+      r["Product Name"], r.Brand, String(r.Qty), String(r["Unit Price"]), String(r["Line Total"]), String(r["Order Total"]), r.Status,
     ]),
-    styles: { fontSize: 8 },
+    styles: { fontSize: 7 },
   });
   doc.save(filename);
 }
