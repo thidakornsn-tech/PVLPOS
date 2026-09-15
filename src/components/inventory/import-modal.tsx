@@ -4,7 +4,7 @@ import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/field";
+import { Select, Input } from "@/components/ui/field";
 import {
   autoMapHeaders,
   FIELD_LABELS,
@@ -16,6 +16,10 @@ import type { Product } from "@/lib/types";
 
 type Stage = "pick" | "map" | "importing";
 
+export type ImportRow = Partial<Product> & {
+  _promotions?: { name: string; price: number }[];
+};
+
 export function ImportModal({
   open,
   onClose,
@@ -23,12 +27,13 @@ export function ImportModal({
 }: {
   open: boolean;
   onClose: () => void;
-  onImport: (rows: Partial<Product>[]) => Promise<void>;
+  onImport: (rows: ImportRow[]) => Promise<void>;
 }) {
   const [stage, setStage] = useState<Stage>("pick");
   const [headers, setHeaders] = useState<string[]>([]);
   const [dataRows, setDataRows] = useState<Record<string, unknown>[]>([]);
   const [mapping, setMapping] = useState<Record<number, ImportField | null>>({});
+  const [promoNames, setPromoNames] = useState<Record<number, string>>({});
   const [headerRowIdx, setHeaderRowIdx] = useState(0);
   const [fileName, setFileName] = useState("");
 
@@ -37,6 +42,7 @@ export function ImportModal({
     setHeaders([]);
     setDataRows([]);
     setMapping({});
+    setPromoNames({});
     setFileName("");
   }
 
@@ -60,29 +66,40 @@ export function ImportModal({
     setHeaders(h);
     setDataRows(rows);
     setHeaderRowIdx(idx);
-    setMapping(autoMapHeaders(h));
+    const { mapping: m, promoNames: pn } = autoMapHeaders(h);
+    setMapping(m);
+    setPromoNames(pn);
     setStage("map");
   }
 
   async function confirmImport() {
     setStage("importing");
     const fieldByHeaderIdx = mapping;
-    const rows: Partial<Product>[] = dataRows.map((r) => {
-      const out: Partial<Product> = { name: "" };
-      headers.forEach((h, idx) => {
-        const field = fieldByHeaderIdx[idx];
-        if (!field) return;
-        const val = r[h];
-        if (field === "rrpPrice") out.rrp_price = parseNumberLoose(val);
-        else if (field === "currentStock") out.current_stock = parseNumberLoose(val);
-        else if (field === "name") out.name = String(val ?? "").trim();
-        else if (field === "brand") out.brand = String(val ?? "").trim();
-        else if (field === "barcode") out.barcode = String(val ?? "").trim();
-        else if (field === "sku") out.sku = String(val ?? "").trim();
-        else if (field === "category") out.category = String(val ?? "").trim();
-      });
-      return out;
-    }).filter((r) => r.name);
+    const rows: ImportRow[] = dataRows
+      .map((r) => {
+        const out: ImportRow = { name: "" };
+        const promos: { name: string; price: number }[] = [];
+        headers.forEach((h, idx) => {
+          const field = fieldByHeaderIdx[idx];
+          if (!field) return;
+          const val = r[h];
+          if (field === "rrpPrice") out.rrp_price = parseNumberLoose(val);
+          else if (field === "currentStock") out.current_stock = parseNumberLoose(val);
+          else if (field === "name") out.name = String(val ?? "").trim();
+          else if (field === "brand") out.brand = String(val ?? "").trim();
+          else if (field === "barcode") out.barcode = String(val ?? "").trim();
+          else if (field === "sku") out.sku = String(val ?? "").trim();
+          else if (field === "category") out.category = String(val ?? "").trim();
+          else if (field === "promo") {
+            const price = parseNumberLoose(val);
+            const promoName = (promoNames[idx] || "").trim();
+            if (price > 0 && promoName) promos.push({ name: promoName, price });
+          }
+        });
+        if (promos.length) out._promotions = promos;
+        return out;
+      })
+      .filter((r) => r.name);
 
     await onImport(rows);
     reset();
@@ -91,6 +108,7 @@ export function ImportModal({
 
   const mappedFields = new Set(Object.values(mapping).filter(Boolean));
   const nameIsMapped = mappedFields.has("name");
+  const promoColumnCount = Object.values(mapping).filter((f) => f === "promo").length;
 
   return (
     <Modal
@@ -119,7 +137,8 @@ export function ImportModal({
           <p className="text-sm text-gray-600 mb-3">
             Upload an Excel (.xlsx) or CSV file. Only <strong>Product Name</strong> is required — every other column
             is optional and auto-matched by header name (Brand, Barcode, Product Code, RRP Price, Current Stock,
-            etc.), even if your file uses different wording.
+            etc.), even if your file uses different wording. Columns named <strong>&quot;Promotion &lt;name&gt;&quot;</strong>{" "}
+            (e.g. &quot;Promotion Summer Sale&quot;) are detected automatically — one column per promotion.
           </p>
           <input
             type="file"
@@ -136,6 +155,7 @@ export function ImportModal({
             {fileName} — {dataRows.length} rows detected
             {headerRowIdx > 0 && ` (header row auto-detected at row ${headerRowIdx + 1})`}. Review the column
             mapping below and adjust any that look wrong.
+            {promoColumnCount > 0 && ` ${promoColumnCount} promotion column(s) detected.`}
           </p>
           <div className="max-h-72 overflow-y-auto border border-gray-100 rounded-md divide-y divide-gray-100">
             {headers.map((h, idx) => (
@@ -155,6 +175,14 @@ export function ImportModal({
                     </option>
                   ))}
                 </Select>
+                {mapping[idx] === "promo" && (
+                  <Input
+                    className="w-40"
+                    placeholder="Promotion name"
+                    value={promoNames[idx] ?? ""}
+                    onChange={(e) => setPromoNames((pn) => ({ ...pn, [idx]: e.target.value }))}
+                  />
+                )}
               </div>
             ))}
           </div>
