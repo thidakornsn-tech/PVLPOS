@@ -9,7 +9,6 @@ import { useToast } from "@/components/ui/toast";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
 import { isCountableOrder, type CartLine, type OrderWithItems } from "@/lib/types";
 import { ProductGrid } from "@/components/pos/product-grid";
-import { CartPanel } from "@/components/pos/cart-panel";
 import { CheckoutPanel } from "@/components/pos/checkout-panel";
 import { OrderDetailModal } from "@/components/pos/order-detail-modal";
 import { EditOrderModal } from "@/components/pos/edit-order-modal";
@@ -116,6 +115,7 @@ export default function PosPage() {
 
   // -------- Order History state --------
   const [historySearch, setHistorySearch] = useState("");
+  const [historyEventFilter, setHistoryEventFilter] = useState("");
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
   const [detailOrder, setDetailOrder] = useState<OrderWithItems | null>(null);
@@ -123,12 +123,19 @@ export default function PosPage() {
   const [deleteTargets, setDeleteTargets] = useState<OrderWithItems[] | null>(null);
 
   const filteredOrders = useMemo(() => {
-    if (!historySearch) return orders;
-    const q = historySearch.toLowerCase();
-    return orders.filter((o) => `${o.order_number} ${o.customer_name ?? ""}`.toLowerCase().includes(q));
-  }, [orders, historySearch]);
+    let list = orders;
+    if (historyEventFilter) list = list.filter((o) => o.event_id === historyEventFilter);
+    if (historySearch) {
+      const q = historySearch.toLowerCase();
+      list = list.filter((o) => `${o.order_number} ${o.customer_name ?? ""}`.toLowerCase().includes(q));
+    }
+    return list;
+  }, [orders, historySearch, historyEventFilter]);
 
   const selectedCount = Object.values(selectedIds).filter(Boolean).length;
+  // Export whatever is checked, or fall back to the filtered set (respects
+  // both the search box and the event dropdown) when nothing is checked.
+  const exportTargetOrders = selectedCount > 0 ? orders.filter((o) => selectedIds[o.id]) : filteredOrders;
 
   return (
     <div>
@@ -150,23 +157,17 @@ export default function PosPage() {
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-4">
           <div>
             <ProductGrid products={products} promotions={promotions} allocations={allocations} onAdd={addToCart} />
-            <div className="mt-4">
-              <p className="text-xs font-medium text-gray-500 mb-2">Cart ({cart.length})</p>
-              <CartPanel
-                cart={cart}
-                products={products}
-                promotions={promotions}
-                onChangeQty={(idx, qty) => setCart((c) => c.map((l, i) => (i === idx ? { ...l, qty } : l)))}
-                onChangePrice={(idx, label, price) =>
-                  setCart((c) => c.map((l, i) => (i === idx ? { ...l, priceLabel: label, unitPrice: price, isGiveaway: false } : l)))
-                }
-                onToggleGiveaway={(idx) => setCart((c) => c.map((l, i) => (i === idx ? { ...l, isGiveaway: !l.isGiveaway } : l)))}
-                onRemove={(idx) => setCart((c) => c.filter((_, i) => i !== idx))}
-              />
-            </div>
           </div>
           <CheckoutPanel
             cart={cart}
+            products={products}
+            promotions={promotions}
+            onChangeQty={(idx, qty) => setCart((c) => c.map((l, i) => (i === idx ? { ...l, qty } : l)))}
+            onChangePrice={(idx, label, price) =>
+              setCart((c) => c.map((l, i) => (i === idx ? { ...l, priceLabel: label, unitPrice: price, isGiveaway: false } : l)))
+            }
+            onToggleGiveaway={(idx) => setCart((c) => c.map((l, i) => (i === idx ? { ...l, isGiveaway: !l.isGiveaway } : l)))}
+            onRemoveFromCart={(idx) => setCart((c) => c.filter((_, i) => i !== idx))}
             events={events}
             salesPeople={salesPeople}
             paymentMethods={paymentMethods}
@@ -195,36 +196,49 @@ export default function PosPage() {
       {subTab === "history" && (
         <div>
           <div className="flex items-center gap-2 mb-3">
-                   <div className="relative">
-          <button
-            onClick={() => setExportMenuOpen((v) => !v)}
-            className="text-xs px-3 py-1.5 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 inline-flex items-center gap-1.5"
-          >
-            <Download className="w-3.5 h-3.5" /> Export
-          </button>
-          {exportMenuOpen && (
-            <div className="absolute left-0 mt-1 w-44 bg-white border border-gray-200 rounded-md shadow-lg z-20 py-1 text-sm">
+            <div className="relative">
               <button
-                className="w-full text-left px-3 py-1.5 hover:bg-gray-50"
-                onClick={() => { exportOrdersCsv(filteredOrders); setExportMenuOpen(false); }}
+                onClick={() => setExportMenuOpen((v) => !v)}
+                className="text-xs px-3 py-1.5 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 inline-flex items-center gap-1.5"
               >
-                CSV
+                <Download className="w-3.5 h-3.5" /> Export {selectedCount > 0 ? `(${selectedCount} selected)` : ""}
               </button>
-              <button
-                className="w-full text-left px-3 py-1.5 hover:bg-gray-50"
-                onClick={() => { exportOrdersXlsx(filteredOrders); setExportMenuOpen(false); }}
-              >
-                Excel
-              </button>
-              <button
-                className="w-full text-left px-3 py-1.5 hover:bg-gray-50"
-                onClick={() => { exportOrdersPdf(filteredOrders); setExportMenuOpen(false); }}
-              >
-                PDF
-              </button>
+              {exportMenuOpen && (
+                <div className="absolute left-0 mt-1 w-52 bg-white border border-gray-200 rounded-md shadow-lg z-20 py-1 text-sm">
+                  <button
+                    className="w-full text-left px-3 py-1.5 hover:bg-gray-50"
+                    onClick={() => { exportOrdersCsv(exportTargetOrders); setExportMenuOpen(false); }}
+                  >
+                    CSV
+                  </button>
+                  <button
+                    className="w-full text-left px-3 py-1.5 hover:bg-gray-50"
+                    onClick={() => { exportOrdersXlsx(exportTargetOrders); setExportMenuOpen(false); }}
+                  >
+                    Excel
+                  </button>
+                  <button
+                    className="w-full text-left px-3 py-1.5 hover:bg-gray-50"
+                    onClick={() => { exportOrdersPdf(exportTargetOrders); setExportMenuOpen(false); }}
+                  >
+                    PDF
+                  </button>
+                </div>
+              )}
             </div>
-          )}
-        </div> <div className="relative flex-1 max-w-sm">
+            <select
+              value={historyEventFilter}
+              onChange={(e) => setHistoryEventFilter(e.target.value)}
+              className="text-xs border border-gray-300 rounded-md px-2.5 py-2"
+            >
+              <option value="">All Events</option>
+              {events.map((ev) => (
+                <option key={ev.id} value={ev.id}>
+                  {ev.name}
+                </option>
+              ))}
+            </select>
+            <div className="relative flex-1 max-w-sm">
               <Search className="w-4 h-4 text-gray-400 absolute left-2.5 top-2.5" />
               <input
                 value={historySearch}
