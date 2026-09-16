@@ -24,12 +24,15 @@ import { EditOrderModal } from "@/components/pos/edit-order-modal";
 import { DeleteOrderDialog } from "@/components/pos/delete-order-dialog";
 import { Badge } from "@/components/ui/badge";
 
-const PRESETS: { key: DatePreset; label: string }[] = [
+type PresetKey = DatePreset | "custom";
+
+const PRESETS: { key: PresetKey; label: string }[] = [
   { key: "today", label: "Today" },
   { key: "7d", label: "7 Days" },
   { key: "30d", label: "30 Days" },
   { key: "90d", label: "90 Days" },
   { key: "all", label: "All Time" },
+  { key: "custom", label: "Custom" },
 ];
 const LOW_STOCK_THRESHOLD = 10;
 
@@ -47,13 +50,35 @@ export default function DashboardPage() {
   const refundOrder = useRefundOrder();
   const cancelDraft = useCancelDraft();
 
-  const [preset, setPreset] = useState<DatePreset>("30d");
+  const [preset, setPreset] = useState<PresetKey>("30d");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+  const [eventFilter, setEventFilter] = useState(""); // "" = All Events
   const [grouping, setGrouping] = useState<"day" | "week" | "month">("day");
   const [detailOrder, setDetailOrder] = useState<OrderWithItems | null>(null);
   const [editOrder, setEditOrder] = useState<OrderWithItems | null>(null);
   const [deleteTargets, setDeleteTargets] = useState<OrderWithItems[] | null>(null);
 
-  const scoped = useMemo(() => filterOrdersByRange(orders, preset), [orders, preset]);
+  const dateScoped = useMemo(() => {
+    if (preset === "custom") {
+      if (!customFrom && !customTo) return orders;
+      const from = customFrom ? new Date(customFrom + "T00:00:00") : null;
+      const to = customTo ? new Date(customTo + "T23:59:59") : null;
+      return orders.filter((o) => {
+        const d = new Date(o.created_at);
+        if (from && d < from) return false;
+        if (to && d > to) return false;
+        return true;
+      });
+    }
+    return filterOrdersByRange(orders, preset);
+  }, [orders, preset, customFrom, customTo]);
+
+  const scoped = useMemo(() => {
+    if (!eventFilter) return dateScoped;
+    return dateScoped.filter((o) => o.event_id === eventFilter);
+  }, [dateScoped, eventFilter]);
+
   const countable = useMemo(() => scoped.filter(isCountableOrder), [scoped]);
 
   const revenue = countable.reduce((s, o) => s + o.total, 0);
@@ -68,24 +93,55 @@ export default function DashboardPage() {
   const lowStock = products.filter((p) => p.current_stock > 0 && p.current_stock <= LOW_STOCK_THRESHOLD);
   const outOfStock = products.filter((p) => p.current_stock <= 0);
 
-  const recentOrders = orders.slice(0, 10);
+  const recentOrders = scoped.slice(0, 10);
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-lg font-semibold text-gray-900">Dashboard</h1>
-        <div className="flex items-center gap-1">
-          {PRESETS.map((p) => (
-            <button
-              key={p.key}
-              onClick={() => setPreset(p.key)}
-              className={`text-xs px-2.5 py-1.5 rounded-md border ${
-                preset === p.key ? "bg-gray-900 text-white border-gray-900" : "border-gray-200 text-gray-600 hover:bg-gray-50"
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1">
+            {PRESETS.map((p) => (
+              <button
+                key={p.key}
+                onClick={() => setPreset(p.key)}
+                className={`text-xs px-2.5 py-1.5 rounded-md border ${
+                  preset === p.key ? "bg-gray-900 text-white border-gray-900" : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          {preset === "custom" && (
+            <div className="flex items-center gap-1.5">
+              <input
+                type="date"
+                value={customFrom}
+                onChange={(e) => setCustomFrom(e.target.value)}
+                className="text-xs border border-gray-300 rounded-md px-2 py-1.5"
+              />
+              <span className="text-xs text-gray-400">to</span>
+              <input
+                type="date"
+                value={customTo}
+                onChange={(e) => setCustomTo(e.target.value)}
+                className="text-xs border border-gray-300 rounded-md px-2 py-1.5"
+              />
+            </div>
+          )}
+          <select
+            value={eventFilter}
+            onChange={(e) => setEventFilter(e.target.value)}
+            className="text-xs border border-gray-300 rounded-md px-2.5 py-2"
+          >
+            <option value="">All Events</option>
+            {events.map((ev) => (
+              <option key={ev.id} value={ev.id}>
+                {ev.name}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
