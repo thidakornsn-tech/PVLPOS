@@ -2,10 +2,17 @@
 import { Field, Input, Select } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
-import type { CartLine, EventRow, PaymentMethod, SalesPerson } from "@/lib/types";
+import { CartPanel } from "@/components/pos/cart-panel";
+import type { CartLine, EventRow, PaymentMethod, Product, Promotion, SalesPerson } from "@/lib/types";
 
 export function CheckoutPanel({
   cart,
+  products,
+  promotions,
+  onChangeQty,
+  onChangePrice,
+  onToggleGiveaway,
+  onRemoveFromCart,
   events,
   salesPeople,
   paymentMethods,
@@ -29,6 +36,12 @@ export function CheckoutPanel({
   submitting,
 }: {
   cart: CartLine[];
+  products: Product[];
+  promotions: Promotion[];
+  onChangeQty: (idx: number, qty: number) => void;
+  onChangePrice: (idx: number, label: string, price: number) => void;
+  onToggleGiveaway: (idx: number) => void;
+  onRemoveFromCart: (idx: number) => void;
   events: EventRow[];
   salesPeople: SalesPerson[];
   paymentMethods: PaymentMethod[];
@@ -94,6 +107,19 @@ export function CheckoutPanel({
         <Field label="Phone">
           <Input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} />
         </Field>
+      </div>
+
+      <div className="pt-2 border-t border-gray-100">
+        <p className="text-xs font-medium text-gray-500 mb-2">Cart ({cart.length})</p>
+        <CartPanel
+          cart={cart}
+          products={products}
+          promotions={promotions}
+          onChangeQty={onChangeQty}
+          onChangePrice={onChangePrice}
+          onToggleGiveaway={onToggleGiveaway}
+          onRemove={onRemoveFromCart}
+        />
       </div>
 
       <div className="pt-2 border-t border-gray-100 text-sm space-y-1">
